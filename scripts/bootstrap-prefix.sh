@@ -246,7 +246,8 @@ configure_toolchain() {
 				app-arch/libarchive
 				app-crypt/rhash
 				dev-util/cmake
-				dev-util/ninja"
+				dev-util/ninja
+				sys-devel/gnuconfig"
 			case "${ccvers}" in
 				*"Apple clang version "*)
 					vers=${ccvers#*Apple clang version }
@@ -261,6 +262,9 @@ configure_toolchain() {
 						sys-libs/libcxx"
 					CC=clang
 					CXX=clang++
+					# sys-devel/binutils-apple requires sys-libs/tapi, but we
+					# cannot build it first. so, stage2 needs to bootstrap it.
+					#linker="sys-libs/tapi sys-devel/binutils-apple"
 					linker=sys-devel/binutils-apple
 					if [[ ! -d /usr/include ]]; then
 						darwin_symlink_sdk
@@ -330,14 +334,16 @@ configure_toolchain() {
 					<sys-devel/clang-${cdep}"
 			fi
 
+			# libcxx* needs to be after llvm as llvm.eclass checks
+			# for an installed copy llvm.
 			compiler="
 				sys-libs/csu
 				dev-libs/libffi
 				${llvm_deps}
-				sys-libs/libcxxabi
-				sys-libs/libcxx
 				sys-devel/llvm
-				sys-devel/clang"
+				sys-devel/clang
+				sys-libs/libcxxabi
+				sys-libs/libcxx"
 			;;
 		*-freebsd*)
 			CC=clang
@@ -561,6 +567,9 @@ bootstrap_setup() {
 	# because jsoncpp requires meson which is not available yet.
 	# So, cmake needs to temporarily bootstrap its own jsconcpp.
 	dev-util/cmake -system-jsoncpp
+	# disable bootstrapping libcxx* with libunwind
+	sys-libs/libcxxabi -libunwind
+	sys-libs/libcxx -libunwind
 	# Most binary Linux distributions seem to fancy toolchains that
 	# do not do c++ support (need to install a separate package).
 	sys-libs/ncurses -cxx
@@ -1361,6 +1370,31 @@ bootstrap_libressl() {
 		https://ftp.openbsd.org/pub/OpenBSD/LibreSSL
 }
 
+bootstrap_libtapi() {
+	# grab the libtapi headers (which are actually compiled headers)
+	# but link with libtapi.dylib from CommaandLineTools
+
+	local PN PV A S
+	PN=libtapi
+	PV=1000.10.8_1
+	rev=${CHOST##*darwin}
+	A=${PN}-${PV}.darwin_${rev}.x86_64.tbz2
+	einfo "Bootstrapping ${A%-*} (link to system dylib)"
+
+	efetch "http://packages.macports.org/libtapi/${A}"
+
+	einfo "Unpacking ${A%-*}"
+	S="${PORTAGE_TMPDIR}/${PN}-${PV}"
+	rm -rf "${S}"
+	mkdir -p "${S}"
+	cd "${S}"
+	bzip2 -dc "${DISTDIR}/${A}" | tar -xf - || return 1
+	cp -r opt/local/include/tapi "${ROOT}"/tmp/usr/include || return 1
+
+	# to link with this lib, pass '-client_name ld' in LDFLAGS
+	ln -s /Library/Developer/CommandLineTools/usr/lib/libtapi.dylib "${ROOT}"/tmp/usr/lib
+}
+
 bootstrap_stage_host_gentoo() {
 	if ! is-rap ; then
 		einfo "Shortcut only supports prefix-standalone, but we are bootstrapping"
@@ -1779,11 +1813,31 @@ bootstrap_stage2() {
 
 	emerge_pkgs --nodeps "${pkgs[@]}" || return 1
 
+	if [[ ${CHOST} == *-darwin* ]]; then
+		# libtapi.dylib is needed to build the binutils-apple linker,
+		# but building sys-libs/tapi requires llvm to be installed
+		# because it uses llvm.eclass which checks for which version
+		# of llvm is installed. Also, building libtapi includes
+		# re-building the sources of llvm & clang to get some internal
+		# binaries that don't get installed, but we haven't installed
+		# the llvm deps yet. So, we can't install tapi via portage yet.
+		[[ ${DARWIN_USE_GCC} == 1 ]] \
+			|| [[ -f "${ROOT}"/tmp/usr/lib/libtapi.dylib ]] \
+			|| (bootstrap_libtapi) || return 1
+	fi
+
 	# Debian multiarch supported by RAP needs ld to support sysroot.
 	EXTRA_ECONF=$(rapx --with-sysroot=/) \
 	emerge_pkgs --nodeps ${linker} || return 1
 
+	local save_CPPFLAGS="${CPPFLAGS}"
 	for pkg in ${compiler_stage1} ; do
+		if [[ "${pkg}" == *sys-devel/llvm* || ${pkg} == *sys-devel/clang* ]] ;
+		then
+			# clang doesn't have the implicit framework paths configured yet.
+			export CPPFLAGS="${save_CPPFLAGS} -F${ROOT}/MacOSX.sdk/System/Library/Frameworks"
+		fi
+
 		# <glibc-2.5 does not understand .gnu.hash, use
 		# --hash-style=both to produce also sysv hash.
 		EXTRA_ECONF="--disable-bootstrap $(rapx --with-linker-hash-style=both) --with-local-prefix=${ROOT}" \
@@ -1796,9 +1850,18 @@ bootstrap_stage2() {
 		if [[ "${pkg}" == *sys-devel/llvm* || ${pkg} == *sys-devel/clang* ]] ;
 		then
 			# we need llvm/clang ASAP for libcxx* doesn't build
-			# without C++11
+			# without C++11 (this is only for older clang builds)
 			[[ -x ${ROOT}/tmp/usr/bin/clang   ]] && CC=clang
 			[[ -x ${ROOT}/tmp/usr/bin/clang++ ]] && CXX=clang++
+
+			# once clang is installed, drop the INCLUDE_PATH vars
+			# so that we do not duplicate internal include paths
+			# (duplicats can cause system header not found issues)
+			[[ ${INCLUDE_EPREFIX_DARWIN_SDK} == 1 && -d ${ROOT}/tmp/usr/lib/clang ]] \
+				&& unset C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+			# reset CPPFLAGS to drop the framework path
+			export CPPFLAGS="${save_CPPFLAGS}"
 		fi
 	done
 

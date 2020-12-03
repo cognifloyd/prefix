@@ -119,6 +119,69 @@ setup_macosx_sdk_symlink() {
 	einfo "using system sources from ${SDKPATH}"
 }
 
+manage_include_paths() {
+	case ${CHOST}:${DARWIN_USE_GCC} in
+		*-darwin*:0)
+			[[ -d /usr/include ]] && return 0
+			[[ ${CC} == *clang* ]] || return 0
+			;;
+		*)
+			return 0
+			;;
+	esac
+
+	# C_INCLUDE_PATH and CPLUS_INCLUDE_PATH are the only way to override
+	# clang's builtin header search path. (vs adding new paths w/ -I or -isystem)
+	# we need to carefully adjust these paths throughout stage 1 & stage 2 in order
+	# to successfully bootstrap with clang on darwin.
+
+	local stage=${1}
+	local pkg=${2}
+
+	case ${stage} in
+		stage1|stage2)
+			export C_INCLUDE_PATH="${ROOT}/MacOSX.sdk/usr/include"
+
+			local XCODE_PATH=$(xcode-select -p)
+			# Xcode.app path is deeper than CommandLineTools path
+			[[ "${XCODE_PATH}" == */CommandLineTools ]] || XCODE_PATH+="/Toolchains/XcodeDefault.xctoolchain"
+
+			# Use SDK-provided c++ headers before libcxx is built
+			export CPLUS_INCLUDE_PATH="${XCODE_PATH}/usr/include/c++/v1:${C_INCLUDE_PATH}"
+			;;
+		stage2-pre-pkg)
+			# do not use SDK-provided c++ headers while building libcxx
+			# (thus simulating the effects of using -nostdlib which libcxx requires)
+			[[ "${pkg}" == *sys-libs/libcxx* ]] &&
+				export CPLUS_INCLUDE_PATH="${C_INCLUDE_PATH}"
+
+			# save these to be restored after installing clang
+			[[ -z ${save_CPPFLAGS} ]] && export save_CPPFLAGS="${CPPFLAGS}"
+
+			# clang doesn't have the implicit framework search paths configured yet,
+			# so we need to tell it where the frameworks needed to build llvm and clang are.
+			[[ "${pkg}" == *sys-devel/llvm* || "${pkg}" == *sys-devel/clang* ]] &&
+				export CPPFLAGS="${save_CPPFLAGS} -F${ROOT}/MacOSX.sdk/System/Library/Frameworks"
+			;;
+		stage2-post-pkg)
+			# Use EPREFIX/tmp c++ headers once libcxx is installed
+			[[ "${pkg}" == *sys-libs/libcxx* ]] &&
+				export CPLUS_INCLUDE_PATH="${ROOT}/tmp/usr/include/c++/v1:${C_INCLUDE_PATH}"
+
+			# reset CPPFLAGS to drop the framework path
+			[[ "${pkg}" == *sys-devel/llvm* || "${pkg}" == *sys-devel/clang* ]] &&
+				export CPPFLAGS="${save_CPPFLAGS}"
+
+			# once clang is installed, drop the INCLUDE_PATH vars
+			# so that we do not duplicate internal include paths
+			# (duplicates can cause system header not found issues)
+			[[ ${pkg} == *sys-devel/clang* ]] &&
+				unset C_INCLUDE_PATH CPLUS_INCLUDE_PATH save_CPPFLAGS
+			;;
+	esac
+
+}
+
 configure_cflags() {
 	export CPPFLAGS="-I${ROOT}/tmp/usr/include"
 	
@@ -250,6 +313,8 @@ configure_toolchain() {
 			case "${ccvers}" in
 				*"Apple clang version "*|*"Apple LLVM version "*)
 					# this is Clang, recent enough to compile recent clang
+					# llvm and clang must be built with the same libc++
+					# So, make sure that llvm and clang are always after libcxx*
 					compiler_stage1+="
 						${llvm_deps}
 						sys-libs/libcxxabi
@@ -1394,7 +1459,8 @@ bootstrap_stage1() {
 
 	configure_toolchain
 	export CC CXX
-	setup_macosx_sdk_symlink
+	manage_include_paths stage1 || return 1
+	setup_macosx_sdk_symlink || return 1
 
 	# run all bootstrap_* commands in a subshell since the targets
 	# frequently pollute the environment using exports which affect
@@ -1660,6 +1726,7 @@ bootstrap_stage2() {
 	# Find out what toolchain packages we need, and configure LDFLAGS
 	# and friends.
 	configure_toolchain || return 1
+	manage_include_paths stage2 || return 1
 	configure_cflags || return 1
 	export CONFIG_SHELL="${ROOT}"/tmp/bin/bash
 	export CC CXX
@@ -1772,6 +1839,8 @@ bootstrap_stage2() {
 	emerge_pkgs --nodeps ${linker} || return 1
 
 	for pkg in ${compiler_stage1} ; do
+		manage_include_paths stage2-pre-pkg ${pkg}
+
 		# <glibc-2.5 does not understand .gnu.hash, use
 		# --hash-style=both to produce also sysv hash.
 		EXTRA_ECONF="--disable-bootstrap $(rapx --with-linker-hash-style=both) --with-local-prefix=${ROOT}" \
@@ -1784,10 +1853,11 @@ bootstrap_stage2() {
 		if [[ "${pkg}" == *sys-devel/llvm* || ${pkg} == *sys-devel/clang* ]] ;
 		then
 			# we need llvm/clang ASAP for libcxx* doesn't build
-			# without C++11
+			# without C++11 (this is only for older clang builds)
 			[[ -x ${ROOT}/tmp/usr/bin/clang   ]] && CC=clang
 			[[ -x ${ROOT}/tmp/usr/bin/clang++ ]] && CXX=clang++
 		fi
+		manage_include_paths stage2-post-pkg ${pkg}
 	done
 
 	if [[ ${compiler_type} == clang ]] ; then

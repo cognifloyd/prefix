@@ -324,11 +324,12 @@ configure_toolchain() {
 					"
 					CC=clang
 					CXX=clang++
+					linker=sys-devel/binutils-apple
 					# avoid going through hoops and deps for
 					# binutils-apple, rely on the host-installed ld to
 					# build a compiler, we'll pull in binutils-apple
 					# from system set
-					linker=sys-devel/native-cctools
+					#linker=sys-devel/native-cctools
 					;;
 				*)
 					eerror "unknown/unsupported compiler"

@@ -117,6 +117,17 @@ setup_macosx_sdk_symlink() {
 	einfo "using system sources from ${SDKPATH}"
 }
 
+darwin_include_paths_for_clang() {
+	# only used on clang-based darwin installs
+
+	local XCODE_PATH=$(xcode-select -p)
+	# Xcode.app path is deeper than CommandLineTools path
+	[[ "${XCODE_PATH}" == */CommandLineTools ]] || XCODE_PATH+="/Toolchains/XcodeDefault.xctoolchain"
+
+	export C_INCLUDE_PATH="${ROOT}/MacOSX.sdk/usr/include"
+	export CPLUS_INCLUDE_PATH="${XCODE_PATH}/usr/include/c++/v1:${C_INCLUDE_PATH}"
+}
+
 configure_cflags() {
 	export CPPFLAGS="-I${ROOT}/tmp/usr/include"
 	
@@ -257,11 +268,15 @@ configure_toolchain() {
 					"
 					CC=clang
 					CXX=clang++
+					if [[ ! -d /usr/include ]]; then
+						export FIX_CLANG_INCLUDE_PATHS=1
+					fi
+					linker=sys-devel/binutils-apple
 					# avoid going through hoops and deps for
 					# binutils-apple, rely on the host-installed ld to
 					# build a compiler, we'll pull in binutils-apple
 					# from system set
-					linker=sys-devel/native-cctools
+					#linker=sys-devel/native-cctools
 					;;
 				*)
 					eerror "unknown/unsupported compiler"
@@ -1392,6 +1407,7 @@ bootstrap_stage1() {
 
 	configure_toolchain
 	export CC CXX
+	[[ ${FIX_CLANG_INCLUDE_PATHS} == 1 ]] && darwin_include_paths_for_clang
 	[[ ${CHOST} == *-darwin* ]] && setup_macosx_sdk_symlink
 
 	# run all bootstrap_* commands in a subshell since the targets
@@ -1658,6 +1674,7 @@ bootstrap_stage2() {
 	# Find out what toolchain packages we need, and configure LDFLAGS
 	# and friends.
 	configure_toolchain || return 1
+	[[ ${FIX_CLANG_INCLUDE_PATHS} == 1 ]] && darwin_include_paths_for_clang
 	configure_cflags || return 1
 	export CONFIG_SHELL="${ROOT}"/tmp/bin/bash
 	export CC CXX

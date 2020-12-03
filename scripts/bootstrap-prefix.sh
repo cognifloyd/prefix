@@ -91,6 +91,26 @@ efetch() {
 	return 0
 }
 
+darwin_symlink_sdk() {
+	# setup MacOSX.sdk symlink for GCC/clang, this should probably be
+	# managed using an eselect module in the future
+	rm -f "${ROOT}/MacOSX.sdk"
+	local SDKPATH=$(xcrun --show-sdk-path --sdk macosx)
+	local SDKVERSION=$(xcrun --show-sdk-version --sdk macosx)
+	( cd ${ROOT} && ln -s "${SDKPATH}" MacOSX.sdk )
+	einfo "using system sources (${SDKVERSION}) from: ${SDKPATH}"
+}
+
+darwin_include_paths_for_clang() {
+	# only used on clang-based darwin installs
+
+	local SDKPATH="${ROOT}/MacOSX.sdk"
+	export C_INCLUDE_PATH="${SDKPATH}/usr/include"
+
+	# we require command line tools. This allows stage2 to progress.
+	export CPLUS_INCLUDE_PATH="/Library/Developer/CommandLineTools/usr/include/c++/v1:${C_INCLUDE_PATH}"
+}
+
 configure_cflags() {
 	export CPPFLAGS="-I${ROOT}/tmp/usr/include"
 	
@@ -242,6 +262,10 @@ configure_toolchain() {
 					CC=clang
 					CXX=clang++
 					linker=sys-devel/binutils-apple
+					if [[ ! -d /usr/include ]]; then
+						darwin_symlink_sdk
+						export INCLUDE_EPREFIX_DARWIN_SDK=1
+					fi
 					;;
 				*"Apple LLVM version "*)
 					vers=${ccvers#*Apple LLVM version }
@@ -507,13 +531,7 @@ bootstrap_setup() {
 	esac
 
 	if [[ ${DARWIN_USE_GCC} == 1 ]] ; then
-		# setup MacOSX.sdk symlink for GCC, this should probably be
-		# managed using an eselect module in the future
-		rm -f "${ROOT}"/MacOSX.sdk
-		local SDKPATH=$(xcrun --show-sdk-path --sdk macosx)
-		( cd "${ROOT}" && ln -s "${SDKPATH}" MacOSX.sdk )
-		einfo "using system sources from ${SDKPATH}"
-
+		darwin_symlink_sdk
 		# amend profile, to use gcc one
 		profile="${profile}/gcc"
 	fi
@@ -535,6 +553,14 @@ bootstrap_setup() {
 	# Use package.use to disable in the portage tree to be shared between
 	# stage2 and stage3. The hack will be undone during tree sync in stage3.
 	cat >> "${ROOT}"/etc/portage/make.profile/package.use <<-EOF
+	# rhash (dep of cmake) configure can't find the openssl/libressl.
+	# ssl use flag allows RHash to "use optimized algorithms"
+	# but rhash will work fine without, so disable during bootstrap.
+	app-crypt/rhash -ssl
+	# sys-libs/jsoncpp cannot be installed in stage2 and early stage3
+	# because jsoncpp requires meson which is not available yet.
+	# So, cmake needs to temporarily bootstrap its own jsconcpp.
+	dev-util/cmake -system-jsoncpp
 	# Most binary Linux distributions seem to fancy toolchains that
 	# do not do c++ support (need to install a separate package).
 	sys-libs/ncurses -cxx
@@ -1382,6 +1408,7 @@ bootstrap_stage1() {
 
 	configure_toolchain
 	export CC CXX
+	[[ ${INCLUDE_EPREFIX_DARWIN_SDK} == 1 ]] && darwin_include_paths_for_clang
 
 	# run all bootstrap_* commands in a subshell since the targets
 	# frequently pollute the environment using exports which affect
@@ -1645,6 +1672,7 @@ bootstrap_stage2() {
 	# Find out what toolchain packages we need, and configure LDFLAGS
 	# and friends.
 	configure_toolchain || return 1
+	[[ ${INCLUDE_EPREFIX_DARWIN_SDK} == 1 ]] && darwin_include_paths_for_clang
 	configure_cflags || return 1
 	export CONFIG_SHELL="${ROOT}"/tmp/bin/bash
 	export CC CXX
@@ -1739,8 +1767,8 @@ bootstrap_stage2() {
 	[[ ${CHOST} == *-solaris* ]] && echo "=dev-libs/libffi-3.3_rc0" \
 		>> "${ROOT}"/tmp/etc/portage/package.mask
 
-	# unlock GCC on Darwin for DARWIN_USE_GCC bootstraps
-	if [[ ${DARWIN_USE_GCC} == 1 ]] ; then
+	# unlock Darwin builds for GCC and clang bootstraps
+	if [[ -d "${ROOT}/MacOSX.sdk" ]] ; then
 		rm -f "${ROOT}"/tmp/MacOSX.sdk
 		( cd "${ROOT}"/tmp && ln -s ../MacOSX.sdk )
 	fi

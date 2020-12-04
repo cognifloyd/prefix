@@ -1169,10 +1169,10 @@ bootstrap_python() {
 		--disable-shared \
 		--libdir="${ROOT}"/tmp/usr/lib \
 		${myconf} || return 1
-	$MAKE ${MAKEOPTS} || return 1
+	v $MAKE ${MAKEOPTS} || return 1
 
 	einfo "Installing ${A%-*}"
-	$MAKE -k install || echo "??? Python failed to install *sigh* continuing anyway"
+	v $MAKE -k install || echo "??? Python failed to install *sigh* continuing anyway"
 	cd "${ROOT}"/tmp/usr/bin
 	ln -sf python${PV%.*} python
 	cd "${ROOT}"/tmp/usr/lib
@@ -1242,10 +1242,10 @@ bootstrap_zlib_core() {
 
 	einfo "Compiling ${A%-*}"
 	CHOST= ${CONFIG_SHELL} ./configure --prefix="${ROOT}"/tmp/usr || return 1
-	$MAKE "${makeopts[@]}" || return 1
+	v $MAKE "${makeopts[@]}" || return 1
 
 	einfo "Installing ${A%-*}"
-	$MAKE "${makeopts[@]}" -j1 install || return 1
+	v $MAKE "${makeopts[@]}" -j1 install || return 1
 
 	# this lib causes issues when emerging python again on Solaris
 	# because the tmp lib path is in the library search path there

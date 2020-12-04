@@ -1703,6 +1703,39 @@ do_emerge_pkgs() {
 	done
 }
 
+cognifloyd_update_tree() {
+	# temp override for darwin (uses ebuild, so needs to be in stage2)
+	#cp -f ~/p/gentoo/new/bash-5.1_rc3.ebuild "${PORTDIR}"/app-shells/bash/
+	#ebuild "${PORTDIR}"/app-shells/bash/bash-5.1_rc3.ebuild manifest || :
+
+	echo "->=dev-util/cmake-3.14" >> "${ROOT}"/tmp/etc/portage/package.mask
+	echo "->=dev-util/cmake-3.14" >> "${ROOT}"/etc/portage/package.mask
+	# changes to support new location for SDK frameworks
+	cp -f ~/p/gentoo/new/cmake.files/* "${PORTDIR}"/dev-util/cmake/files/
+	#cp -f ~/p/gentoo/new/cmake-3.13.5.ebuild "${PORTDIR}"/dev-util/cmake/
+	#ebuild "${PORTDIR}"/dev-util/cmake/cmake-3.13.5.ebuild manifest
+	cp -f ~/p/gentoo/new/cmake-3.19.1.ebuild "${PORTDIR}"/dev-util/cmake/
+	ebuild "${PORTDIR}"/dev-util/cmake/cmake-3.19.1.ebuild manifest
+
+	cp -rf ~/p/gentoo/new/clang.files/* "${PORTDIR}"/sys-devel/clang/files/
+	cp -f ~/p/gentoo/new/clang-11.0.0.ebuild "${PORTDIR}"/sys-devel/clang/
+	ebuild "${PORTDIR}"/sys-devel/clang/clang-11.0.0.ebuild manifest
+
+	cp -f ~/p/gentoo/new/libcxx-portage/libcxx-11.0.0.ebuild "${PORTDIR}"/sys-libs/libcxx/
+	ebuild "${PORTDIR}"/sys-libs/libcxx/libcxx-11.0.0.ebuild manifest
+	cp -f ~/p/gentoo/new/libcxx-portage/libcxxabi-11.0.0.ebuild "${PORTDIR}"/sys-libs/libcxxabi/
+	ebuild "${PORTDIR}"/sys-libs/libcxxabi/libcxxabi-11.0.0.ebuild manifest
+
+	cp -f ~/p/gentoo/new/binutils-apple-11.3.1.ebuild "${PORTDIR}"/sys-devel/binutils-apple/
+	ebuild "${PORTDIR}"/sys-devel/binutils-apple/binutils-apple-11.3.1.ebuild manifest
+
+	# emerge -e system
+	sed -i -e '/^KEYWORDS=/s/x86"/x86 ~x64-macos"/' "${PORTDIR}"/sys-libs/llvm-libunwind/llvm-libunwind-11.0.0.ebuild
+	ebuild "${PORTDIR}"/sys-libs/llvm-libunwind/llvm-libunwind-11.0.0.ebuild manifest
+
+	# end temp override
+}
+
 bootstrap_stage2() {
 	if ! type -P emerge > /dev/null ; then
 		eerror "emerge not found, did you bootstrap stage1?"
@@ -1776,6 +1809,8 @@ bootstrap_stage2() {
 	# look into its default library path.  Prefix library pathes
 	# are taken care of by LDFLAGS in configure_cflags().
 	export BOOTSTRAP_RAP_STAGE2=yes
+
+	cognifloyd_update_tree
 
 	# Build a basic compiler and portage dependencies in $ROOT/tmp.
 	pkgs=(
@@ -1999,6 +2034,8 @@ bootstrap_stage3() {
 		mkdir -p "${ROOT}"/usr/share
 		cp -a "${ROOT}"{/tmp,}/usr/share/portage
 	fi
+
+	cognifloyd_update_tree
 
 	if is-rap ; then
 		# We need ${ROOT}/usr/bin/perl to merge glibc.
@@ -3017,6 +3054,7 @@ EOF
 
 	[[ ${STOP_BOOTSTRAP_AFTER} == stage3 ]] && exit 0
 
+	ROOT="${EPREFIX}" cognifloyd_update_tree
 	local cmd="emerge -e system"
 	if [[ -e ${EPREFIX}/var/cache/edb/mtimedb ]] && \
 		grep -q resume "${EPREFIX}"/var/cache/edb/mtimedb ;
@@ -3193,7 +3231,7 @@ case ${CHOST} in
 		case ${DARWIN_USE_GCC} in
 			yes|true|1)  DARWIN_USE_GCC=1  ;;
 			no|false|0)  DARWIN_USE_GCC=0  ;;
-			*)           DARWIN_USE_GCC=1  ;;   # default to GCC build
+			#*)           DARWIN_USE_GCC=1  ;;   # default to GCC build
 		esac
 		;;
 	*)

@@ -1182,7 +1182,7 @@ bootstrap_python() {
 	# http://forums.gentoo.org/viewtopic-p-6890526.html
 	rm -f libpython${PV%.*}.a
 
-	einfo "${A%-*} bootstrapped"
+	einfo "${A%-*}-${PV} bootstrapped"
 }
 
 bootstrap_zlib_core() {
@@ -1265,7 +1265,7 @@ bootstrap_zlib_core() {
 		rm -f "${ROOT}"/tmp/usr/lib/libz.so.1
 	fi
 
-	einfo "${A%-*} bootstrapped"
+	einfo "${A%-*}-${PV} bootstrapped"
 }
 
 bootstrap_zlib() {

@@ -409,6 +409,8 @@ bootstrap_setup() {
 				echo "# Avoid problems due to case-insensitivity, bug #524236"
 				echo 'FEATURES="${FEATURES} case-insensitive-fs"'
 			fi
+			# don't delete the work for now.
+			echo 'FEATURES="${FEATURES} keepwork"'
 			[[ -n ${PORTDIR_OVERLAY} ]] && \
 				echo "PORTDIR_OVERLAY=\"\${PORTDIR_OVERLAY} ${PORTDIR_OVERLAY}\""
 			[[ -n ${MAKE_CONF_ADDITIONAL_USE} ]] &&

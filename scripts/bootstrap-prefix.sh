@@ -599,6 +599,7 @@ do_tree() {
 bootstrap_tree() {
 	# RAP uses the latest gentoo main repo snapshot to bootstrap.
 	is-rap && LATEST_TREE_YES=1
+	LATEST_TREE_YES=1
 	local PV="20210102"
 	if [[ -n ${LATEST_TREE_YES} ]]; then
 		do_tree "${SNAPSHOT_URL}" portage-latest.tar.bz2
@@ -1717,6 +1718,29 @@ do_emerge_pkgs() {
 	done
 }
 
+cognifloyd_update_tree() {
+	if [ ! -f "${PORTDIR}"/.18845-tree-updated ]; then
+		pushd "${PORTDIR}"
+
+		efetch https://patch-diff.githubusercontent.com/raw/gentoo/gentoo/pull/18845.diff
+		patch -p1 < "${DISTDIR}"/18845.diff || return 1
+		ebuild dev-util/cmake/cmake-3.19.2.ebuild manifest
+
+		touch .18845-tree-updated
+		popd # PORTDIR
+	fi
+
+	# fix llvm-shim and llvm-prefix patches
+	mkdir -p "${PORTDIR}"/sys-devel/binutils-apple/files
+	cp -f ~/p/gentoo/new/binutils-apple.files/binutils-apple-11.3.1-llvm-*.patch "${PORTDIR}"/sys-devel/binutils-apple/files
+	cp -f ~/p/gentoo/new/binutils-apple-11.3.1-r1.ebuild "${PORTDIR}"/sys-devel/binutils-apple
+	ebuild "${PORTDIR}"/sys-devel/binutils-apple/binutils-apple-11.3.1-r1.ebuild manifest
+
+	cp -f ~/p/gentoo/new/tapi-11.0.0-*.patch "${PORTDIR}"/sys-libs/tapi/files
+	cp -f ~/p/gentoo/new/tapi-11.0.0.ebuild "${PORTDIR}"/sys-libs/tapi
+	ebuild "${PORTDIR}"/sys-libs/tapi/tapi-11.0.0.ebuild manifest
+}
+
 bootstrap_stage2() {
 	if ! type -P emerge > /dev/null ; then
 		eerror "emerge not found, did you bootstrap stage1?"
@@ -1791,6 +1815,8 @@ bootstrap_stage2() {
 	# look into its default library path.  Prefix library pathes
 	# are taken care of by LDFLAGS in configure_cflags().
 	export BOOTSTRAP_RAP_STAGE2=yes
+
+	cognifloyd_update_tree
 
 	# Build a basic compiler and portage dependencies in $ROOT/tmp.
 	pkgs=(
@@ -1992,6 +2018,8 @@ bootstrap_stage3() {
 		cp -a "${ROOT}"{/tmp,}/usr/share/portage
 	fi
 
+	cognifloyd_update_tree
+
 	if is-rap ; then
 		# We need ${ROOT}/usr/bin/perl to merge glibc.
 		if [[ ! -x "${ROOT}"/usr/bin/perl ]]; then
@@ -2174,6 +2202,8 @@ bootstrap_stage3() {
 	else
 		emerge --color n --sync || emerge-webrsync || return 1
 	fi
+
+	cognifloyd_update_tree
 
 	# avoid installing git or encryption just for fun while completing @system
 	export USE="-git -crypt"
@@ -2990,6 +3020,7 @@ EOF
 
 	[[ ${STOP_BOOTSTRAP_AFTER} == stage3 ]] && exit 0
 
+	ROOT="${EPREFIX}" cognifloyd_update_tree
 	local cmd="emerge -v -e system"
 	if [[ -e ${EPREFIX}/var/cache/edb/mtimedb ]] && \
 		grep -q resume "${EPREFIX}"/var/cache/edb/mtimedb ;
@@ -3149,7 +3180,7 @@ case ${CHOST} in
 		case ${DARWIN_USE_GCC} in
 			yes|true|1)  DARWIN_USE_GCC=1  ;;
 			no|false|0)  DARWIN_USE_GCC=0  ;;
-			*)           DARWIN_USE_GCC=1  ;;   # default to GCC build
+			#*)           DARWIN_USE_GCC=1  ;;   # default to GCC build
 		esac
 		;;
 	*)

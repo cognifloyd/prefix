@@ -1732,6 +1732,9 @@ cognifloyd_update_tree() {
 	ebuild "${PORTDIR}"/sys-devel/binutils-apple/binutils-apple-11.3.1.ebuild manifest
 
 	# emerge -e system
+	# newer gettext is masked, so mask newer bison
+	echo ">=sys-devel/bison-3.7" >> "${ROOT}"/etc/portage/package.mask
+	# just keyword it
 	sed -i -e '/^KEYWORDS=/s/x86"/x86 ~x64-macos"/' "${PORTDIR}"/sys-libs/llvm-libunwind/llvm-libunwind-11.0.0.ebuild
 	ebuild "${PORTDIR}"/sys-libs/llvm-libunwind/llvm-libunwind-11.0.0.ebuild manifest
 

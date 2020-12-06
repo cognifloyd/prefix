@@ -104,11 +104,12 @@ darwin_symlink_sdk() {
 darwin_include_paths_for_clang() {
 	# only used on clang-based darwin installs
 
-	local SDKPATH="${ROOT}/MacOSX.sdk"
-	export C_INCLUDE_PATH="${SDKPATH}/usr/include"
+	local XCODE_PATH=$(xcode-select -p)
+	# Xcode.app path is deeper than CommandLineTools path
+	[[ "${XCODE_PATH}" == */CommandLineTools ]] || XCODE_PATH+="/Toolchains/XcodeDefault.xctoolchain"
 
-	# we require command line tools. This allows stage2 to progress.
-	export CPLUS_INCLUDE_PATH="/Library/Developer/CommandLineTools/usr/include/c++/v1:${C_INCLUDE_PATH}"
+	export C_INCLUDE_PATH="${ROOT}/MacOSX.sdk/usr/include"
+	export CPLUS_INCLUDE_PATH="${XCODE_PATH}/usr/include/c++/v1:${C_INCLUDE_PATH}"
 }
 
 configure_cflags() {

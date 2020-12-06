@@ -1903,7 +1903,7 @@ bootstrap_stage2() {
 
 			# once clang is installed, drop the INCLUDE_PATH vars
 			# so that we do not duplicate internal include paths
-			# (duplicats can cause system header not found issues)
+			# (duplicates can cause system header not found issues)
 			[[ ${INCLUDE_EPREFIX_DARWIN_SDK} == 1 && -d ${ROOT}/tmp/usr/lib/clang ]] \
 				&& unset C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 

@@ -1881,13 +1881,15 @@ bootstrap_stage2() {
 	save_CPPFLAGS="${CPPFLAGS}"
 	[[ -n ${CPLUS_INCLUDE_PATH} ]] && save_CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH}"
 	for pkg in ${compiler_stage1} ; do
-		if [[ "${pkg}" == *sys-devel/llvm* || ${pkg} == *sys-devel/clang* ]] ;
+		if [[ "${pkg}" == *sys-devel/llvm* || "${pkg}" == *sys-devel/clang* ]] ;
 		then
 			# clang doesn't have the implicit framework paths configured yet.
 			export CPPFLAGS="${save_CPPFLAGS} -F${ROOT}/MacOSX.sdk/System/Library/Frameworks"
-		elif [[ "${pkg}" == *sys-libs/libcxx* ]] ;
+		fi
+		if [[ "${pkg}" == *sys-libs/libcxx* || "${pgk}" == *sys-devel/clang* ]] ;
 		then
 			# don't include c++ headers when building libcxx
+			# and clang should use our libcxx headers instead of the system headers
 			export CPLUS_INCLUDE_PATH="${C_INCLUDE_PATH}"
 		fi
 

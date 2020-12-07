@@ -258,9 +258,9 @@ configure_toolchain() {
 					compiler_stage1+="
 						${llvm_deps}
 						sys-devel/llvm
-						sys-devel/clang
 						sys-libs/libcxxabi
-						sys-libs/libcxx"
+						sys-libs/libcxx
+						sys-devel/clang"
 					CC=clang
 					CXX=clang++
 					# sys-devel/binutils-apple requires sys-libs/tapi, but we
@@ -289,9 +289,9 @@ configure_toolchain() {
 							compiler_stage1+="
 								${llvm_deps}
 								sys-devel/llvm
-								sys-devel/clang
 								sys-libs/libcxxabi
-								sys-libs/libcxx"
+								sys-libs/libcxx
+								sys-devel/clang"
 							;;
 					esac
 					CC=clang
@@ -342,9 +342,9 @@ configure_toolchain() {
 				dev-libs/libffi
 				${llvm_deps}
 				sys-devel/llvm
-				sys-devel/clang
 				sys-libs/libcxxabi
-				sys-libs/libcxx"
+				sys-libs/libcxx
+				sys-devel/clang"
 			;;
 		*-freebsd*)
 			CC=clang
@@ -1877,12 +1877,18 @@ bootstrap_stage2() {
 	EXTRA_ECONF=$(rapx --with-sysroot=/) \
 	emerge_pkgs --nodeps ${linker} || return 1
 
-	local save_CPPFLAGS="${CPPFLAGS}"
+	local save_CPPFLAGS save_CPLUS_INCLUDE_PATH
+	save_CPPFLAGS="${CPPFLAGS}"
+	[[ -n ${CPLUS_INCLUDE_PATH} ]] && save_CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH}"
 	for pkg in ${compiler_stage1} ; do
 		if [[ "${pkg}" == *sys-devel/llvm* || ${pkg} == *sys-devel/clang* ]] ;
 		then
 			# clang doesn't have the implicit framework paths configured yet.
 			export CPPFLAGS="${save_CPPFLAGS} -F${ROOT}/MacOSX.sdk/System/Library/Frameworks"
+		elif [[ "${pkg}" == *sys-libs/libcxx* ]] ;
+		then
+			# don't include c++ headers when building libcxx
+			export CPLUS_INCLUDE_PATH="${C_INCLUDE_PATH}"
 		fi
 
 		# <glibc-2.5 does not understand .gnu.hash, use
@@ -1909,6 +1915,10 @@ bootstrap_stage2() {
 
 			# reset CPPFLAGS to drop the framework path
 			export CPPFLAGS="${save_CPPFLAGS}"
+		elif [[ "${pkg}" == *sys-libs/libcxx* ]] ;
+		then
+			# do not re-add CPLUS_INCLUDE_PATH if it has been unset
+			[[ -z ${CPLUS_INCLUDE_PATH+x} ]] || export CPLUS_INCLUDE_PATH="${save_CPLUS_INCLUDE_PATH}"
 		fi
 	done
 

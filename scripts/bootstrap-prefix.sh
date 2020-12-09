@@ -109,7 +109,12 @@ darwin_include_paths_for_clang() {
 	[[ "${XCODE_PATH}" == */CommandLineTools ]] || XCODE_PATH+="/Toolchains/XcodeDefault.xctoolchain"
 
 	export C_INCLUDE_PATH="${ROOT}/MacOSX.sdk/usr/include"
+	# stage1&2: CPLUS_INCLUDE_PATH needs to have system c++ headers before libcxx is built
 	export CPLUS_INCLUDE_PATH="${XCODE_PATH}/usr/include/c++/v1:${C_INCLUDE_PATH}"
+	# stage2: CPLUS_INCLUDE_PATH must not have system c++ headers for building libcxx
+	export libcxx_CPLUS_INCLUDE_PATH="${C_INCLUDE_PATH}"
+	# stage2: CPLUS_INCLUDE_PATH should have EPREFIX/tmp c++ headers after libcxx is built
+	export post_libcxx_CPLUS_INCLUDE_PATH="${ROOT}/tmp/usr/include/c++/v1:${C_INCLUDE_PATH}"
 }
 
 configure_cflags() {
@@ -255,11 +260,13 @@ configure_toolchain() {
 					vers=${vers% (clang-*}
 					# this is Clang, recent enough to compile recent clang
 					mycc=clang
+					# llvm and clang must be built with the same libc++
+					# So, make sure that llvm and clang are always after libcxx*
 					compiler_stage1+="
 						${llvm_deps}
-						sys-devel/llvm
 						sys-libs/libcxxabi
 						sys-libs/libcxx
+						sys-devel/llvm
 						sys-devel/clang"
 					CC=clang
 					CXX=clang++
@@ -288,9 +295,9 @@ configure_toolchain() {
 							mycc=clang
 							compiler_stage1+="
 								${llvm_deps}
-								sys-devel/llvm
 								sys-libs/libcxxabi
 								sys-libs/libcxx
+								sys-devel/llvm
 								sys-devel/clang"
 							;;
 					esac
@@ -328,10 +335,10 @@ configure_toolchain() {
 				local cdep="3.5.9999"
 				compiler_stage1+="
 					dev-libs/libffi
-					<sys-devel/llvm-${cdep}
 					<sys-libs/libcxx-headers-${cdep}
 					<sys-libs/libcxxabi-${cdep}
 					<sys-libs/libcxx-${cdep}
+					<sys-devel/llvm-${cdep}
 					<sys-devel/clang-${cdep}"
 			fi
 
@@ -341,9 +348,9 @@ configure_toolchain() {
 				sys-libs/csu
 				dev-libs/libffi
 				${llvm_deps}
-				sys-devel/llvm
 				sys-libs/libcxxabi
 				sys-libs/libcxx
+				sys-devel/llvm
 				sys-devel/clang"
 			;;
 		*-freebsd*)
@@ -1720,12 +1727,17 @@ cognifloyd_update_tree() {
 	cp -f ~/p/gentoo/new/cmake-3.19.1.ebuild "${PORTDIR}"/dev-util/cmake/
 	ebuild "${PORTDIR}"/dev-util/cmake/cmake-3.19.1.ebuild manifest
 
+	#cp -f ~/p/gentoo/PP-debug-prints.patch "${PORTDIR}"/sys-devel/clang/files/
 	cp -rf ~/p/gentoo/new/clang.files/* "${PORTDIR}"/sys-devel/clang/files/
 	cp -f ~/p/gentoo/new/clang-11.0.0.ebuild "${PORTDIR}"/sys-devel/clang/
 	ebuild "${PORTDIR}"/sys-devel/clang/clang-11.0.0.ebuild manifest
 
+	cp -f ~/p/gentoo/new/libcxx-portage/libcxx-11.0.0-no-apple-availability-tests.patch "${PORTDIR}"/sys-libs/libcxx/files/
+	#cp -f ~/p/gentoo/new/libcxx-portage/5005-MacPorts-only-patch-libcxx-includes-disable-availability-tests.diff "${PORTDIR}"/sys-libs/libcxx/files/
 	cp -f ~/p/gentoo/new/libcxx-portage/libcxx-11.0.0.ebuild "${PORTDIR}"/sys-libs/libcxx/
 	ebuild "${PORTDIR}"/sys-libs/libcxx/libcxx-11.0.0.ebuild manifest
+	cp -f ~/p/gentoo/new/libcxx-portage/libcxx-11.0.0-no-apple-availability-tests.patch "${PORTDIR}"/sys-libs/libcxxabi/files/
+	#cp -f ~/p/gentoo/new/libcxx-portage/5005-MacPorts-only-patch-libcxx-includes-disable-availability-tests.diff "${PORTDIR}"/sys-libs/libcxxabi/files/
 	cp -f ~/p/gentoo/new/libcxx-portage/libcxxabi-11.0.0.ebuild "${PORTDIR}"/sys-libs/libcxxabi/
 	ebuild "${PORTDIR}"/sys-libs/libcxxabi/libcxxabi-11.0.0.ebuild manifest
 
@@ -1877,20 +1889,16 @@ bootstrap_stage2() {
 	EXTRA_ECONF=$(rapx --with-sysroot=/) \
 	emerge_pkgs --nodeps ${linker} || return 1
 
-	local save_CPPFLAGS save_CPLUS_INCLUDE_PATH
-	save_CPPFLAGS="${CPPFLAGS}"
-	[[ -n ${CPLUS_INCLUDE_PATH} ]] && save_CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH}"
+	local save_CPPFLAGS="${CPPFLAGS}"
 	for pkg in ${compiler_stage1} ; do
-		if [[ "${pkg}" == *sys-devel/llvm* || "${pkg}" == *sys-devel/clang* ]] ;
+		if [[ "${pkg}" == *sys-libs/libcxx* && ! -z ${libcxx_CPLUS_INCLUDE_PATH+x} ]] ;
+		then
+			# see darwin_include_paths_for_clang
+			export CPLUS_INCLUDE_PATH="${libcxx_CPLUS_INCLUDE_PATH}"
+		elif [[ "${pkg}" == *sys-devel/llvm* || "${pkg}" == *sys-devel/clang* ]] ;
 		then
 			# clang doesn't have the implicit framework paths configured yet.
 			export CPPFLAGS="${save_CPPFLAGS} -F${ROOT}/MacOSX.sdk/System/Library/Frameworks"
-		fi
-		if [[ "${pkg}" == *sys-libs/libcxx* || "${pgk}" == *sys-devel/clang* ]] ;
-		then
-			# don't include c++ headers when building libcxx
-			# and clang should use our libcxx headers instead of the system headers
-			export CPLUS_INCLUDE_PATH="${C_INCLUDE_PATH}"
 		fi
 
 		# <glibc-2.5 does not understand .gnu.hash, use
@@ -1902,7 +1910,11 @@ bootstrap_stage2() {
 		PYTHON_COMPAT_OVERRIDE=python${PYTHONMAJMIN} \
 		emerge_pkgs --nodeps ${pkg} || return 1
 
-		if [[ "${pkg}" == *sys-devel/llvm* || ${pkg} == *sys-devel/clang* ]] ;
+		if [[ "${pkg}" == *sys-libs/libcxx* && ! -z ${post_libcxx_CPLUS_INCLUDE_PATH+x} ]] ;
+		then
+			# see darwin_include_paths_for_clang
+			export CPLUS_INCLUDE_PATH="${post_libcxx_CPLUS_INCLUDE_PATH}"
+		elif [[ "${pkg}" == *sys-devel/llvm* || ${pkg} == *sys-devel/clang* ]] ;
 		then
 			# we need llvm/clang ASAP for libcxx* doesn't build
 			# without C++11 (this is only for older clang builds)
@@ -1917,10 +1929,6 @@ bootstrap_stage2() {
 
 			# reset CPPFLAGS to drop the framework path
 			export CPPFLAGS="${save_CPPFLAGS}"
-		elif [[ "${pkg}" == *sys-libs/libcxx* ]] ;
-		then
-			# do not re-add CPLUS_INCLUDE_PATH if it has been unset
-			[[ -z ${CPLUS_INCLUDE_PATH+x} ]] || export CPLUS_INCLUDE_PATH="${save_CPLUS_INCLUDE_PATH}"
 		fi
 	done
 

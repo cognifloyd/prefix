@@ -658,6 +658,7 @@ do_tree() {
 bootstrap_tree() {
 	# RAP uses the latest gentoo main repo snapshot to bootstrap.
 	is-rap && LATEST_TREE_YES=1
+	LATEST_TREE_YES=1
 	local PV="20201211"
 	if [[ -n ${LATEST_TREE_YES} ]]; then
 		do_tree "${SNAPSHOT_URL}" portage-latest.tar.bz2
@@ -1775,46 +1776,20 @@ do_emerge_pkgs() {
 }
 
 cognifloyd_update_tree() {
-	# temp override for darwin (uses ebuild, so needs to be in stage2)
-	#cp -f ~/p/gentoo/new/bash-5.1_rc3.ebuild "${PORTDIR}"/app-shells/bash/
-	#ebuild "${PORTDIR}"/app-shells/bash/bash-5.1_rc3.ebuild manifest || :
+	if [ ! -f "${PORTDIR}"/.18845-tree-updated ]; then
+		pushd "${PORTDIR}"
 
-	echo "->=dev-util/cmake-3.14" >> "${ROOT}"/tmp/etc/portage/package.mask
-	echo "->=dev-util/cmake-3.14" >> "${ROOT}"/etc/portage/package.mask
-	# changes to support new location for SDK frameworks
-	cp -f ~/p/gentoo/new/cmake.files/* "${PORTDIR}"/dev-util/cmake/files/
-	#cp -f ~/p/gentoo/new/cmake-3.13.5.ebuild "${PORTDIR}"/dev-util/cmake/
-	#ebuild "${PORTDIR}"/dev-util/cmake/cmake-3.13.5.ebuild manifest
-	cp -f ~/p/gentoo/new/cmake-3.19.1.ebuild "${PORTDIR}"/dev-util/cmake/
-	ebuild "${PORTDIR}"/dev-util/cmake/cmake-3.19.1.ebuild manifest
+		efetch https://patch-diff.githubusercontent.com/raw/gentoo/gentoo/pull/18845.diff
+		patch -p1 < "${DISTDIR}"/18845.diff || return 1
+		ebuild dev-util/cmake/cmake-3.19.2.ebuild manifest
 
-	#cp -f ~/p/gentoo/PP-debug-prints.patch "${PORTDIR}"/sys-devel/clang/files/
-	cp -rf ~/p/gentoo/new/clang.files/* "${PORTDIR}"/sys-devel/clang/files/
-	cp -f ~/p/gentoo/new/clang-11.0.0.ebuild "${PORTDIR}"/sys-devel/clang/
-	ebuild "${PORTDIR}"/sys-devel/clang/clang-11.0.0.ebuild manifest
+		touch .18845-tree-updated
+		popd # PORTDIR
+	fi
 
-	for x in libcxxabi libcxx; do
-		#cp -f ~/p/gentoo/new/libcxx-portage/libcxx-11.0.0-no-apple-availability-tests.patch "${PORTDIR}"/sys-libs/${x}/files/
-		#cp -f ~/p/gentoo/new/libcxx-portage/5005-MacPorts-only-patch-libcxx-includes-disable-availability-tests.diff "${PORTDIR}"/sys-libs/${x}/files/
-		cp -f ~/p/gentoo/new/libcxx-portage/${x}-11.0.0.ebuild "${PORTDIR}/sys-libs/${x}/"
-		ebuild "${PORTDIR}"/sys-libs/libcxx/${x}-11.0.0.ebuild manifest
-	done
-
-	cp -f ~/p/gentoo/new/binutils-apple-11.3.1.ebuild "${PORTDIR}"/sys-devel/binutils-apple/
-	ebuild "${PORTDIR}"/sys-devel/binutils-apple/binutils-apple-11.3.1.ebuild manifest
-
-	# emerge -e system
-	sed -i -e '/^KEYWORDS=/s/x86"/x86 ~x64-macos"/' "${PORTDIR}"/sys-libs/llvm-libunwind/llvm-libunwind-11.0.0.ebuild
-	ebuild "${PORTDIR}"/sys-libs/llvm-libunwind/llvm-libunwind-11.0.0.ebuild manifest
-
-	for x in compiler-rt compiler-rt-sanitizers; do
-		mkdir -p "${PORTDIR}/sys-libs/${x}/files"
-		cp -f ~/p/gentoo/new/compiler-rt-prefix-paths.patch "${PORTDIR}/sys-libs/${x}/files"
-		cp -f ~/p/gentoo/new/${x}-11.0.0.ebuild "${PORTDIR}/sys-libs/${x}/"
-		ebuild "${PORTDIR}/sys-libs/${x}/${x}-11.0.0.ebuild" manifest
-	done
-
-	# end temp override
+	cp -f ~/p/gentoo/new/tapi-11.0.0-*.patch "${PORTDIR}"/sys-libs/tapi/files
+	cp -f ~/p/gentoo/new/tapi-11.0.0.ebuild "${PORTDIR}"/sys-libs/tapi
+	ebuild "${PORTDIR}"/sys-libs/tapi/tapi-11.0.0.ebuild manifest
 }
 
 bootstrap_stage2() {

@@ -103,6 +103,20 @@ efetch() {
 	return 0
 }
 
+setup_macosx_sdk_symlink() {
+	# setup MacOSX.sdk symlink for GCC/clang, this should probably be
+	# managed using an eselect module in the future
+	rm -f "${ROOT}"/MacOSX.sdk
+	local SDKPATH=$(xcrun --show-sdk-path --sdk macosx)
+	if [[ ! -e ${SDKPATH} ]] ; then
+		SDKPATH=$(xcodebuild -showsdks | sort -nr \
+			| grep -o "macosx.*" | head -n1)
+		SDKPATH=$(xcode-select -print-path)/SDKs/MacOSX${SDKPATH#macosx}.sdk
+	fi
+	( cd "${ROOT}" && ln -s "${SDKPATH}" MacOSX.sdk )
+	einfo "using system sources from ${SDKPATH}"
+}
+
 configure_cflags() {
 	export CPPFLAGS="-I${ROOT}/tmp/usr/include"
 	
@@ -420,20 +434,7 @@ bootstrap_setup() {
 			;;
 	esac
 
-	if [[ ${CHOST} == *-darwin* ]] ; then
-		# setup MacOSX.sdk symlink for GCC, this should probably be
-		# managed using an eselect module in the future
-		rm -f "${ROOT}"/MacOSX.sdk
-		local SDKPATH=$(xcrun --show-sdk-path --sdk macosx)
-		if [[ ! -e ${SDKPATH} ]] ; then
-			SDKPATH=$(xcodebuild -showsdks | sort -nr \
-				| grep -o "macosx.*" | head -n1)
-			SDKPATH=$(xcode-select -print-path)/SDKs/MacOSX${SDKPATH#macosx}.sdk
-		fi
-		( cd "${ROOT}" && ln -s "${SDKPATH}" MacOSX.sdk )
-		einfo "using system sources from ${SDKPATH}"
-	fi
-
+	[[ ${CHOST} == *-darwin* ]] && setup_macosx_sdk_symlink
 	if [[ ${DARWIN_USE_GCC} == 1 ]] ; then
 		# amend profile, to use gcc one
 		profile="${profile}/gcc"
@@ -1391,6 +1392,7 @@ bootstrap_stage1() {
 
 	configure_toolchain
 	export CC CXX
+	[[ ${CHOST} == *-darwin* ]] && setup_macosx_sdk_symlink
 
 	# run all bootstrap_* commands in a subshell since the targets
 	# frequently pollute the environment using exports which affect

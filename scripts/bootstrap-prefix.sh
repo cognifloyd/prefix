@@ -491,6 +491,13 @@ bootstrap_setup() {
 	sys-devel/binutils -cxx
 	EOF
 
+	# This hack will also be undone during tree sync in stage3.
+	cat >> "${ROOT}"/etc/portage/make.profile/package.use.force <<-EOF
+	# gettext does not compile without nls, so force it on to override
+	# the -nls useflag during stage2 and stage3
+	sys-devel/gettext nls
+	EOF
+
 	# On Darwin we might need this to bootstrap the compiler, since
 	# bootstrapping the linker (binutils-apple) requires a c++11
 	# compiler amongst other things

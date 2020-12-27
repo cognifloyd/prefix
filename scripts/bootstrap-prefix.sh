@@ -1787,6 +1787,12 @@ cognifloyd_update_tree() {
 		popd # PORTDIR
 	fi
 
+	# fix llvm-shim and llvm-prefix patches
+	mkdir -p "${PORTDIR}"/sys-devel/binutils-apple/files
+	cp -f ~/p/gentoo/new/binutils-apple.files/binutils-apple-11.3.1-llvm-*.patch "${PORTDIR}"/sys-devel/binutils-apple/files
+	cp -f ~/p/gentoo/new/binutils-apple-11.3.1-r1.ebuild "${PORTDIR}"/sys-devel/binutils-apple
+	ebuild "${PORTDIR}"/sys-devel/binutils-apple/binutils-apple-11.3.1-r1.ebuild manifest
+
 	cp -f ~/p/gentoo/new/tapi-11.0.0-*.patch "${PORTDIR}"/sys-libs/tapi/files
 	cp -f ~/p/gentoo/new/tapi-11.0.0.ebuild "${PORTDIR}"/sys-libs/tapi
 	ebuild "${PORTDIR}"/sys-libs/tapi/tapi-11.0.0.ebuild manifest
